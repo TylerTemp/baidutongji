@@ -499,22 +499,27 @@ class BaiduTongji(object):
 
 
 if __name__ == '__main__':
-    from bashlog import stdoutlogger, DEBUG
     from pprint import pprint
     from docpie import docpie
+    import logging
     import sys
 
     args = docpie(__doc__)
-    stdoutlogger(logger, DEBUG)
-    logger.setLevel(logging.DEBUG)
     hdlr = logging.StreamHandler(sys.stdout)
-    hdlr.setFormatter(logging.Formatter())
+    hdlr.setFormatter(logging.Formatter(
+            '[%(levelname)1.1s %(lineno)3d %(asctime)s %(module)s:%(funcName)s]'
+            ' %(message)s'))
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(hdlr)
 
     username = args['--username']
     password = args['--password']
     site_id = args['--siteid']
-    # assert username and password and site_id, __doc__
-    l = Location(username=username, password=password, site_id=site_id)
+    if not (username and password and site_id):
+        sys.stdout.write(__doc__)
+        sys.exit(1)
+
+    l = BaiduTongji(username=username, password=password, site_id=site_id)
 
     logged = False
     while not logged:
@@ -528,11 +533,9 @@ if __name__ == '__main__':
     d = datetime.date(year=int(year), month=int(month), day=int(day))
     r = l.get_region(d)
     for each in r:
-        if each['city'] == 'sum':
-            print(each['region'], each['city'])
+        pprint(each)
 
     for each in l.has_city_regions():
         r = l.get_city(each, d)
         for each in r:
-            if each['city'] == 'sum':
-                print(each['region'], each['city'])
+            pprint(each)
