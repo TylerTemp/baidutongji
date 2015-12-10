@@ -19,13 +19,14 @@ with open(os.path.join(os.path.dirname(__file__), 'README.md'),
 
 setup(
     name="baidutongji",
+    py_modules=['baidutongji'],
     package_data={
         '': [
             'README.md'
         ],
     },
     install_requires=['requests', 'beautifulsoup4'],
-    version='0.0.1',
+    version='0.0.3',
     author="TylerTemp",
     author_email="tylertempdev@gmail.com",
     url="https://github.com/TylerTemp/baidutongji",

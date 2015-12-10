@@ -1,10 +1,14 @@
 """
 Usage: baidulocation [options] <date>
+Usage: baidulocation <username> <password> <date>
+Usage: baidulocation <username> <password> <site_id> <date>
 
 Options:
     -u --username=<username>    baidu tongji username (required)
     -p --password=<password>    baidu tongji password (required)
     -s --siteid=<site_id>       baidu tongji siteid (required)
+    -h -? --help                print this screen
+    -v --version                print the version of this script
 
 Arguments:
     <date>  format: yyyy-mm-dd
@@ -26,17 +30,22 @@ except ImportError:
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-__all__ = ['logger', 'LocationError', 'NotLoginError', 'Location']
-__version__ = '0.0.1'
+__all__ = ['logger', 'BaiduTongji', 'BaiduTongjiError', 'NotLoginError',
+           'SiteIDError']
+__version__ = '0.0.3'
 
 logger = logging.getLogger('baidulocation')
 
 
-class LocationError(Exception):
+class BaiduTongjiError(Exception):
     pass
 
 
-class NotLoginError(LocationError):
+class NotLoginError(BaiduTongjiError):
+    pass
+
+
+class SiteIDError(BaiduTongjiError):
     pass
 
 
@@ -44,6 +53,7 @@ class BaiduTongji(object):
     _session = None
     post_url = 'http://tongji.baidu.com/web/11237910/ajax/post'
     home_url = 'http://tongji.baidu.com/web/11237910/overview/sole'
+    _auto_site_id = None
     regions = [
         {
             "name": "\u5e7f\u4e1c",
@@ -167,12 +177,14 @@ class BaiduTongji(object):
         }
     ]
 
-    def __init__(self, username, password, site_id,
-                 save_image_file=os.path.join(tempfile.gettempdir(), 'validate.png'),
-                 save_code_file=os.path.join(tempfile.gettempdir(), 'validate')):
+    def __init__(self, username, password, site_id=None,
+                 save_image_file=os.path.join(
+                         tempfile.gettempdir(), 'validate.png'),
+                 save_code_file=os.path.join(
+                         tempfile.gettempdir(), 'validate')):
         self.username = username
         self.password = password
-        self.site_id = site_id
+        self._site_id = site_id
         self.img_file = save_image_file
         self.code_file = save_code_file
 
@@ -225,12 +237,35 @@ class BaiduTongji(object):
                 splited_url = urlparse(url.strip())
                 if splited_url.netloc == 'cas.baidu.com':
                     logger.debug('login succeed')
-                    self.get('http://tongji.baidu.com/web/11237910/overview/sole',
+                    if self.site_id is None:
+                        self._auto_site_id = self.fetch_site_id(url.strip())
+
+                    self.get('http://tongji.baidu.com/web/11237910/'
+                             'overview/sole',
                              params={'siteId': self.site_id})
                     return True
 
         logger.info('failed to login: %s', red_url)
         return False
+
+    # site_id_re = re.compile(r'siteId=(\d*)')
+
+    def fetch_site_id(self, url):
+        logger.debug('get id from %s', url)
+        # site_id_re = self.site_id
+        content = self.get(url).text
+        soup = BeautifulSoup(content, 'html5lib')
+        container = soup.find(id='SetCurrentDefaultSite')
+        # container = soup.find('a', href=site_id_re)
+        logger.debug(container)
+        if container is None:
+            raise SiteIDError("Can't find Site ID")
+        site_id = container.get('data', None)
+        if site_id is None:
+            raise SiteIDError("Can't find Site ID")
+        logger.info('auto site id: %s', site_id)
+        self._auto_site_id = site_id
+        exit()
 
     def _get_login_data(self, code):
         return {
@@ -311,13 +346,17 @@ class BaiduTongji(object):
         places = []
         # del self.regions[:]
         for each in items[0]:
+            logger.debug(each)
             each = each[0]
             # self.regions.append(dict(each))
             name = each.pop('name')
             if 'cityId' in each:
-                if each['cityId'] == 0:
+                if each['cityId'] in (0, '0'):
                     each['city'] = name
-                    each['region'] = self._get_region_name(area)
+                    if area:
+                        each['region'] = self._get_region_name(area)
+                    else:
+                        each['region'] = name  # QiTa
                 else:
                     each['region'] = self._get_region_name(each['area'])
                     each['city'] = name
@@ -327,24 +366,29 @@ class BaiduTongji(object):
             places.append(each)
 
         for place, each_num_results in zip(places, items[1]):
-            for field, value in zip(fields, each_num_results):
-                if value == '--':
-                    value = None
-                elif field != 'pv_ratio' and field.endswith('ratio'):
-                    if value > 0 and value < 1:
-                        logger.warning('%s: %s', field, value)
-                    value /= 100.0
-                place[field] = value
+            place.update(self._formal_values(fields, each_num_results))
 
         total = data['sum'][0]
-        total_result = dict(zip(fields, total))
+        total_result = self._formal_values(fields, total)
         total_result['city'] = 'sum'
+
         if area:
             total_result['region'] = self._get_region_name(area)
         else:
             total_result['region'] = 'sum'
         places.append(total_result)
         return places
+
+    def _formal_values(self, keys, values):
+        result = {}
+        for key, value in zip(keys, values):
+            if value == '--':
+                value = None
+            elif key.endswith('ratio'):
+                value /= 100.0
+            result[key] = value
+
+        return result
 
     def _get_region_name(self, region):
         if not hasattr(self, '_region_to_name'):
@@ -404,32 +448,6 @@ class BaiduTongji(object):
 
         return result
 
- #        {'fields': ['null',
- #            'pv_count',
- #            'visitor_count',
- #            'ip_count',
- #            'bounce_ratio',
- #            'avg_visit_time',
- #            'trans_count'],
- # 'items': [['今日', 17018, 1097, 504, 21.12, 506, '--'],
- #           ['昨日', 26488, 1740, 745, 15.51, 423, '--'],
- #           ['预计今日',
- #            {'flag': 1, 'val': 35179},
- #            {'flag': 1, 'val': 2572},
- #            {'flag': 1, 'val': 839},
- #            {'flag': 0, 'val': '--'},
- #            {'flag': 0, 'val': '--'},
- #            {'flag': 0, 'val': '--'}],
- #           ['昨日此时', 12413, 719, 434, 22.85, 569, '--'],
- #           ['每日平均', 56819, 2330, 1142, 20, 591, '--'],
- #           ['历史峰值',
- #            {'date': '2015年11月24日', 'show': 1, 'val': 144424},
- #            {'date': '2015年11月04日', 'show': 1, 'val': 4506},
- #            {'date': '2015年11月20日', 'show': 1, 'val': 1722},
- #            {'date': '2015年11月21日', 'show': 0, 'val': 39.26},
- #            {'date': '2015年11月24日', 'show': 0, 'val': 1235},
- #            '--']]}
-
     def get(self, url, params=None, verify=False, **kwargs):
         return self.session.get(url, params=params, verify=verify, **kwargs)
 
@@ -457,7 +475,12 @@ class BaiduTongji(object):
             yield area
 
     def logout(self):
+        self._auto_site_id = None
         del self.session
+
+    @property
+    def site_id(self):
+        return self._site_id or self._auto_site_id
 
     @staticmethod
     def js_time(date):
@@ -507,15 +530,16 @@ if __name__ == '__main__':
     args = docpie(__doc__)
     hdlr = logging.StreamHandler(sys.stdout)
     hdlr.setFormatter(logging.Formatter(
-            '[%(levelname)1.1s %(lineno)3d %(asctime)s %(module)s:%(funcName)s]'
-            ' %(message)s'))
+            '[%(levelname)1.1s %(lineno)3d %(asctime)s'
+            ' %(module)s:%(funcName)s] '
+            '%(message)s'))
     logger.setLevel(logging.DEBUG)
     logger.addHandler(hdlr)
 
-    username = args['--username']
-    password = args['--password']
-    site_id = args['--siteid']
-    if not (username and password and site_id):
+    username = args['--username'] or args['<username>']
+    password = args['--password'] or args['<password>']
+    site_id = args['--siteid'] or args['<site_id>']
+    if not (username and password):
         sys.stdout.write(__doc__)
         sys.exit(1)
 
@@ -533,9 +557,11 @@ if __name__ == '__main__':
     d = datetime.date(year=int(year), month=int(month), day=int(day))
     r = l.get_region(d)
     for each in r:
-        pprint(each)
+        print(each.pop('region'), each.pop('city'),
+              ', '.join('%s: %s' % (k, v) for k, v in each.items()))
 
-    for each in l.has_city_regions():
-        r = l.get_city(each, d)
+    for each in l.regions:
+        r = l.get_city(each['area'], d)
         for each in r:
-            pprint(each)
+            print(each.pop('region'), each.pop('city'),
+                  ', '.join('%s: %s' % (k, v) for k, v in each.items()))
