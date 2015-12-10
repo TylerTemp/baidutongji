@@ -265,7 +265,6 @@ class BaiduTongji(object):
             raise SiteIDError("Can't find Site ID")
         logger.info('auto site id: %s', site_id)
         self._auto_site_id = site_id
-        exit()
 
     def _get_login_data(self, code):
         return {
@@ -504,9 +503,9 @@ class BaiduTongji(object):
     def check_code(code):
         if len(code) != 4:
             return False
-        if len(set(code).intersection(('ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                                       'abcdefghijklmnopqrstuvwxyz'
-                                       '0123456789'))) != 4:
+        if len(set(code).intersection('ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                                      'abcdefghijklmnopqrstuvwxyz'
+                                      '0123456789')) != 4:
             return False
         return True
 
