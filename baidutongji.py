@@ -1,7 +1,7 @@
 """
 Usage: baidulocation [options] <date>
-Usage: baidulocation <username> <password> <date>
-Usage: baidulocation <username> <password> <site_id> <date>
+       baidulocation <username> <password> <date>
+       baidulocation <username> <password> <site_id> <date>
 
 Options:
     -u --username=<username>    baidu tongji username (required)
@@ -539,7 +539,7 @@ if __name__ == '__main__':
     password = args['--password'] or args['<password>']
     site_id = args['--siteid'] or args['<site_id>']
     if not (username and password):
-        sys.stdout.write(__doc__)
+        sys.stderr.write(__doc__)
         sys.exit(1)
 
     l = BaiduTongji(username=username, password=password, site_id=site_id)
