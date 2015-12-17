@@ -11,7 +11,7 @@ Options:
     -v --version                print the version of this script
 
 Arguments:
-    <date>  format: yyyy-mm-dd
+    <date>  format: yyyy-mm-dd, can be "today" or "yesterday"
 """
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -32,7 +32,7 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 __all__ = ['logger', 'BaiduTongji', 'BaiduTongjiError', 'NotLoginError',
            'SiteIDError']
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 
 logger = logging.getLogger('baidulocation')
 
@@ -54,6 +54,8 @@ class BaiduTongji(object):
     post_url = 'http://tongji.baidu.com/web/11237910/ajax/post'
     home_url = 'http://tongji.baidu.com/web/11237910/overview/sole'
     _auto_site_id = None
+    _avaliable = ['pv_count', 'visitor_count', 'ip_count', 'bounce_ratio',
+                  'avg_visit_time', 'trans_count']
     regions = [
         {
             "name": "\u5e7f\u4e1c",
@@ -447,6 +449,75 @@ class BaiduTongji(object):
 
         return result
 
+    def get_timeline(self, by, date):
+        logger.debug('get %s timeline for %s', by, date)
+        data = self._get_timeline_data(by, date)
+        content = self.post(self.post_url, data=data)
+        return self._parse_timeline_result(content, by.endswith('ratio'))
+
+    def _parse_timeline_result(self, content, is_ratio):
+        obj = json.loads(content)
+        if obj['status'] != 0:
+            logger.warning('timeline result(%s): %s', obj['status'], obj['msg'])
+            logger.debug(obj)
+
+        data = obj['data']
+        title = data['fields'][-1]
+        start, end = map(lambda x: datetime.datetime.strptime(x, '%Y/%m/%d'),
+                         data['timeSpan'])
+        result = {
+            'title': title,
+            'timeline': {
+                start: {},
+                end: {}
+            }
+        }
+        items = data['items']
+        timeline_result = result['timeline']
+        for hour_lis, first_date_and_result, second_date_and_result \
+                in zip(*(items[:-1])):
+            hour = hour_lis[0]
+            # first_date, second_date = map(
+            #         lambda x: datetime.datetime.strptime('%s/%s' % (x, hour),
+            #                                              '%Y/%m/%d/%H'),
+            #         (first_date_and_result[0], second_date_and_result[0])
+            # )
+            first_date, second_date = map(
+                    lambda x: datetime.datetime.strptime(x,
+                                                         '%Y/%m/%d'),
+                    (first_date_and_result[0], second_date_and_result[0])
+            )
+            first_num, second_num = map(lambda x: x if x != '--' else 0,
+                                        (first_date_and_result[-1],
+                                         second_date_and_result[-1]))
+            # first_num = first_date_and_result[-1] \
+            #     if first_date_and_result[-1] != '--' else 0
+            # second_num = second_date_and_result[-1] \
+            #     if second_date_and_result[-1] != '--' else 0
+            if is_ratio:
+                first_num /= 100.0
+                second_num /= 100.0
+
+            timeline_result[first_date][hour] = first_num
+            timeline_result[second_date][hour] = second_num
+
+        return result
+
+    def _get_timeline_data(self, by, start):
+        start_time = self.js_time(start)
+        diff_time = self.js_time(start - datetime.timedelta(days=1))
+        return {
+            'st': start_time,
+            'et': start_time,
+            'st2': diff_time,
+            'et2': diff_time,
+            'indicators': by,
+            'siteId': self.site_id,
+            'reportId': '1',
+            'method': 'overview/getTimeTrendRpt',
+            'queryId': ''
+        }
+
     def get(self, url, params=None, verify=False, **kwargs):
         return self.session.get(url, params=params, verify=verify, **kwargs)
 
@@ -477,6 +548,19 @@ class BaiduTongji(object):
         self._auto_site_id = None
         del self.session
 
+    def __getattr__(self, item):
+
+        start = 'get_'
+        end = '_timeline'
+
+        if item.startswith(start) and item.endswith(end):
+            by = item[len(start):item.find(end)]
+            if by in self._avaliable:
+                return lambda date: self.get_timeline(by, date)
+
+        raise AttributeError("'%s' object has no attribute '%s'" %
+                             (self.__class__.__name__, item))
+
     @property
     def site_id(self):
         return self._site_id or self._auto_site_id
@@ -485,6 +569,10 @@ class BaiduTongji(object):
     def js_time(date):
         d = datetime.datetime(year=date.year, month=date.month, day=date.day)
         return int(d.timestamp() * 1000)
+
+    @staticmethod
+    def python_time(timestamp):
+        return datetime.datetime.fromtimestamp(timestamp / 1000)
 
     @staticmethod
     def get_code(img_file, out_prefix):
@@ -503,9 +591,10 @@ class BaiduTongji(object):
     def check_code(code):
         if len(code) != 4:
             return False
-        if len(set(code).intersection('ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                                      'abcdefghijklmnopqrstuvwxyz'
-                                      '0123456789')) != 4:
+
+        if set(code).difference('ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                                'abcdefghijklmnopqrstuvwxyz'
+                                '0123456789'):
             return False
         return True
 
@@ -542,6 +631,15 @@ if __name__ == '__main__':
         sys.stderr.write(__doc__)
         sys.exit(1)
 
+    date_str = args['<date>']
+    if date_str == 'today':
+        d = datetime.date.today()
+    elif date_str == 'yesterday':
+        d = datetime.date.today() - datetime.timedelta(days=1)
+    else:
+        year, month, day = date_str.split('-')
+        d = datetime.date(year=int(year), month=int(month), day=int(day))
+
     l = BaiduTongji(username=username, password=password, site_id=site_id)
 
     logged = False
@@ -551,9 +649,15 @@ if __name__ == '__main__':
         logged = l.do_login(code)
     # while not l.login():
     #     print('retry...')
-    pprint(l.get_preview())
-    year, month, day = args['<date>'].split('-')
-    d = datetime.date(year=int(year), month=int(month), day=int(day))
+    #
+    # pprint(l.get_preview())
+
+    pprint(l.get_pv_count_timeline(d))
+    pprint(l.get_visitor_count_timeline(d))
+    pprint(l.get_ip_count_timeline(d))
+    pprint(l.get_bounce_ratio_timeline(d))
+    pprint(l.get_avg_visit_time_timeline(d))
+    pprint(l.get_trans_count_timeline(d))
     r = l.get_region(d)
     for each in r:
         print(each.pop('region'), each.pop('city'),

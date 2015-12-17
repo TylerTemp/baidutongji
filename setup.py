@@ -26,7 +26,7 @@ setup(
         ],
     },
     install_requires=['requests', 'beautifulsoup4'],
-    version='0.0.3',
+    version='0.0.4',
     author="TylerTemp",
     author_email="tylertempdev@gmail.com",
     url="https://github.com/TylerTemp/baidutongji",
