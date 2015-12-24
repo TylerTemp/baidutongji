@@ -189,6 +189,7 @@ class BaiduTongji(object):
         self._site_id = site_id
         self.img_file = save_image_file
         self.code_file = save_code_file
+        self.site_ids = []
 
     def login(self, sleep=1):
         self.pre_login(sleep)
@@ -240,7 +241,11 @@ class BaiduTongji(object):
                 if splited_url.netloc == 'cas.baidu.com':
                     logger.debug('login succeed')
                     if self.site_id is None:
-                        self._auto_site_id = self.fetch_site_id(url.strip())
+                        try:
+                            self._auto_site_id = self.fetch_site_id(
+                                    url.strip())
+                        except BaseException as e:
+                            raise SiteIDError('failed to get side id (%s)' % e)
 
                     self.get('http://tongji.baidu.com/web/11237910/'
                              'overview/sole',
@@ -254,19 +259,28 @@ class BaiduTongji(object):
 
     def fetch_site_id(self, url):
         logger.debug('get id from %s', url)
-        # site_id_re = self.site_id
+        result = []
         content = self.get(url).text
         soup = BeautifulSoup(content, 'html5lib')
-        container = soup.find(id='SetCurrentDefaultSite')
-        # container = soup.find('a', href=site_id_re)
-        logger.debug(container)
-        if container is None:
-            raise SiteIDError("Can't find Site ID")
-        site_id = container.get('data', None)
-        if site_id is None:
-            raise SiteIDError("Can't find Site ID")
-        logger.info('auto site id: %s', site_id)
-        self._auto_site_id = site_id
+        # with open('/tmp/site.html', 'w', encoding='utf-8') as f:
+        #     f.write(soup.prettify())
+        container = soup.find(id='SiteList')
+        this_default = None
+        for list_elements in container.find_all('li'):
+            url_element = list_elements.find(None, {'class': 'url'})
+            url = url_element.get('title')
+            value_element = list_elements.find(None, {'class': 'set-default'})
+            value = value_element.get('data')
+            default = 'is-default' in value_element.get('class')
+            result.append({'url': url, 'id': value, 'default': default})
+            if default:
+                this_default = value
+
+        logger.info('auto site id: %s', result)
+        self._auto_site_id = this_default
+        del self.site_ids[:]
+        self.site_ids.extend(result)
+        return result
 
     def _get_login_data(self, code):
         return {
@@ -433,7 +447,7 @@ class BaiduTongji(object):
         result = {}
         for index, main_title in enumerate(
                 ('today', 'yesterday', 'forecase_today', 'yesterday_now',
-                 'everyday_avg')):
+                 'everyday_avg', 'history_peak')):
             this_result = datas[index][1:]
             for this_index, val in enumerate(this_result):
                 if main_title == 'forecase_today':
@@ -442,6 +456,12 @@ class BaiduTongji(object):
                 else:
                     if val == '--':
                         this_result[this_index] = None
+                    elif main_title == 'history_peak':
+                        date = val['date']
+                        val['date'] = datetime.datetime.strptime(
+                            date, '%Y\u5e74%m\u6708%d\u65e5'
+                        )
+
             logger.debug(main_title)
             logger.debug(titles)
             logger.debug(this_result)
@@ -477,11 +497,6 @@ class BaiduTongji(object):
         for hour_lis, first_date_and_result, second_date_and_result \
                 in zip(*(items[:-1])):
             hour = hour_lis[0]
-            # first_date, second_date = map(
-            #         lambda x: datetime.datetime.strptime('%s/%s' % (x, hour),
-            #                                              '%Y/%m/%d/%H'),
-            #         (first_date_and_result[0], second_date_and_result[0])
-            # )
             first_date, second_date = map(
                     lambda x: datetime.datetime.strptime(x,
                                                          '%Y/%m/%d'),
@@ -490,10 +505,6 @@ class BaiduTongji(object):
             first_num, second_num = map(lambda x: x if x != '--' else 0,
                                         (first_date_and_result[-1],
                                          second_date_and_result[-1]))
-            # first_num = first_date_and_result[-1] \
-            #     if first_date_and_result[-1] != '--' else 0
-            # second_num = second_date_and_result[-1] \
-            #     if second_date_and_result[-1] != '--' else 0
             if is_ratio:
                 first_num /= 100.0
                 second_num /= 100.0
@@ -564,6 +575,14 @@ class BaiduTongji(object):
     @property
     def site_id(self):
         return self._site_id or self._auto_site_id
+
+    @site_id.setter
+    def site_id(self, value):
+        self._site_id = value
+
+    @site_id.deleter
+    def site_id(self):
+        del self._site_id
 
     @staticmethod
     def js_time(date):
@@ -650,7 +669,7 @@ if __name__ == '__main__':
     # while not l.login():
     #     print('retry...')
     #
-    # pprint(l.get_preview())
+    pprint(l.get_preview())
 
     pprint(l.get_pv_count_timeline(d))
     pprint(l.get_visitor_count_timeline(d))
