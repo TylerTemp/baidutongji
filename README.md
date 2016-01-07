@@ -35,8 +35,8 @@ BaiduTongji(username, password, site_id, save_image_file='/TMPDIR/validate.png',
 ### Login ###
 
 ```python
-from baidulocation import Location
-l = Location(...)
+from baidutongji import BaiduTongji
+l = BaiduTongji(...)
 l.pre_login(sleep=1)
 ```
 
@@ -61,6 +61,21 @@ from baidutongji import BaiduTongji
 l = BaiduTongji(...)
 while not l.login():    # ORC & try login
     print('retry...')    # failed, re-try
+```
+
+### siteid
+
+You site has one or more site ids.
+
+BaiduTongji will set the default site id as your site on Baidu.
+
+You change it by
+
+``` python
+>>> l.site_ids
+[{'default': True, 'id': '7479735', 'url': 'example.com'},
+ {'default': False, 'id': '7746580', 'url': 'm.example.com'}]
+>>> l.site_id = '7746580'
 ```
 
 ### Get Preview ###
@@ -99,7 +114,23 @@ The format looks like:
                    'ip_count': 730,
                    'pv_count': 34849,
                    'trans_count': None,
-                   'visitor_count': 1616}}
+                   'visitor_count': 1616}},
+ 'history_peak': {'avg_visit_time': {'date': datetime.datetime(2015, 12, 28, 0, 0),
+    'show': 0,
+    'val': 907},
+   'bounce_ratio': {'date': datetime.datetime(2015, 12, 22, 0, 0),
+    'show': 0,
+    'val': 28.07},
+   'ip_count': {'date': datetime.datetime(2015, 12, 29, 0, 0),
+    'show': 1,
+    'val': 736},
+   'pv_count': {'date': datetime.datetime(2015, 12, 29, 0, 0),
+    'show': 1,
+    'val': 29717},
+   'trans_count': None,
+   'visitor_count': {'date': datetime.datetime(2015, 12, 29, 0, 0),
+    'show': 1,
+    'val': 994}}
 ```
 
 ### Get Location ###
